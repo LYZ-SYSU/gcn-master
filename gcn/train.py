@@ -15,10 +15,10 @@ tf.set_random_seed(seed)
 # Settings
 flags = tf.app.flags
 FLAGS = flags.FLAGS
-flags.DEFINE_string('dataset', 'cora', 'Dataset string.')  # 'cora', 'citeseer', 'pubmed'
+flags.DEFINE_string('dataset', 'pubmed', 'Dataset string.')  # 'cora', 'citeseer', 'pubmed'
 flags.DEFINE_string('model', 'gcn_adp', 'Model string.')  # 'gcn', 'gcn_cheby', 'dense'
 flags.DEFINE_float('learning_rate', 0.01, 'Initial learning rate.')
-flags.DEFINE_integer('feature_out_dim', 100, 'Output dimensionality of feature.')
+flags.DEFINE_integer('f_out_dim', 100, 'Output dimensionality of feature.')
 
 flags.DEFINE_integer('epochs', 200, 'Number of epochs to train.')
 flags.DEFINE_integer('hidden1', 16, 'Number of units in hidden layer 1.')
@@ -45,7 +45,8 @@ elif FLAGS.model == 'dense':
     num_supports = 1
     model_func = MLP
 elif FLAGS.model == 'gcn_adp':
-    support = [adapt_preprocess_adj(adj, features)]
+    support = [preprocess_adj(adj)]
+    # support = [adapt_preprocess_adj(adj, features)]
     num_supports = 1
     model_func = AdaGCN
 else:
@@ -53,24 +54,26 @@ else:
 features_mat = features
 features = sparse_to_tuple(features)
 f_in_dim = features_mat.shape[1]
-f_out_dim = FLAGS.feature_out_dim
+adj_mat = adj
 adj = sparse_to_tuple(adj)
 # Define placeholders
 placeholders = {
     'support': [tf.sparse_placeholder(tf.float32) for _ in range(num_supports)],
     'features': tf.sparse_placeholder(tf.float32, shape=tf.constant(features[2], dtype=tf.int64)),
     # 'features_mat': tf.sparse_placeholder(tf.float32, shape=tf.constant(features_mat, dtype=tf.int64)),
-    'adj': tf.sparse_placeholder(tf.float32, shape=tf.constant(adj[2],dtype=tf.int64)),
     'labels': tf.placeholder(tf.float32, shape=(None, y_train.shape[1])),
     'labels_mask': tf.placeholder(tf.int32),
-    'f_in_dim': tf.placeholder_with_default(100., shape=()),
+    'f_out_dim': tf.placeholder_with_default(100, shape=()),
     'dropout': tf.placeholder_with_default(0., shape=()),
     'num_features_nonzero': tf.placeholder(tf.int32)  # helper variable for sparse dropout
 }
 
 
 # Create model
-model = model_func(placeholders, input_dim=features[2][1], logging=True)
+if model_func == AdaGCN:
+    model = model_func(placeholders, adj_mat=adj_mat, features=features_mat, input_dim=features[2][1], logging=True)
+else:
+    model = model_func(placeholders, input_dim=features[2][1], logging=True)
 
 # Initialize session
 sess = tf.Session()
@@ -84,9 +87,9 @@ def evaluate(features, support, labels, mask, placeholders):
     return outs_val[0], outs_val[1], (time.time() - t_test)
 
 
-def evaluate_adp(features, support, labels, mask, placeholders, f_in_dim, f_out_dim, adj):
+def evaluate_adp(features, support, labels, mask, placeholders,):
     t_test = time.time()
-    feed_dict_val = construct_feed_dict(features, support, labels, mask, placeholders, adj, f_in_dim, f_out_dim)
+    feed_dict_val = construct_feed_dict(features, support, labels, mask, placeholders)
     outs_val = sess.run([model.loss, model.accuracy], feed_dict=feed_dict_val)
     return outs_val[0], outs_val[1], (time.time() - t_test)
 
@@ -101,17 +104,17 @@ for epoch in range(FLAGS.epochs):
     t = time.time()
     # Construct feed dictionary
     if FLAGS.model == 'gcn_adp':
-        feed_dict = construct_feed_dict(features, support, y_train, train_mask, placeholders, adj, f_in_dim, f_out_dim)
+        feed_dict = construct_feed_dict(features, support, y_train, train_mask, placeholders)
     else:
         feed_dict = construct_feed_dict(features, support, y_train, train_mask, placeholders)
     feed_dict.update({placeholders['dropout']: FLAGS.dropout})
-
+    feed_dict.update({placeholders['f_out_dim']: FLAGS.f_out_dim})
     # Training step
     outs = sess.run([model.opt_op, model.loss, model.accuracy], feed_dict=feed_dict)
 
     # Validation
     if FLAGS.model == 'gcn_adp':
-        cost, acc, duration = evaluate_adp(features, support,  y_val, val_mask, placeholders, f_in_dim, f_out_dim, adj)
+        cost, acc, duration = evaluate_adp(features, support,  y_val, val_mask, placeholders)
     else:
         cost, acc, duration = evaluate(features, support, y_val, val_mask, placeholders)
     cost_val.append(cost)
@@ -129,7 +132,7 @@ print("Optimization Finished!")
 
 # Testing
 if FLAGS.model == 'gcn_adp':
-    test_cost, test_acc, test_duration = evaluate_adp(features, support, y_test, test_mask, placeholders, f_in_dim, f_out_dim, adj)
+    test_cost, test_acc, test_duration = evaluate_adp(features, support, y_test, test_mask, placeholders)
 else:
     test_cost, test_acc, test_duration = evaluate(features, support, y_test, test_mask, placeholders)
 

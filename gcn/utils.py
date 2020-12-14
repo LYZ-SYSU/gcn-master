@@ -4,7 +4,7 @@ import networkx as nx
 import scipy.sparse as sp
 from scipy.sparse.linalg.eigen.arpack import eigsh
 import sys
-
+import tensorflow as tf
 
 def parse_index_file(filename):
     """Parse index file."""
@@ -112,9 +112,10 @@ def sparse_to_tuple(sparse_mx):
 def tuple_to_sparse(tuples):
     #TODO: fix the transfer function from arbitrary tuple to sparse matrix
     def to_sm(tp):
-        row = tp[0][:, 0]
-        col = tp[0][:, 1]
-        value = tp[1]
+        indices = tp.indices
+        value = tp.values
+        row = indices[:, 0]
+        col = indices[:, 1]
         return sp.coo_matrix(np.array([row, col, value])).tocsr()
 
     if isinstance(tuples,list):
@@ -161,22 +162,26 @@ def preprocess_adj(adj):
 #     adj_normalized = normalize_adj(adp_adj)
 #     return sparse_to_tuple(adj_normalized)
 
-def adapt_preprocess_adj(adj,features):
-    adj_sl = adj +sp.eye(adj.shape[0])
-    adp_adj = adj_sl.multiply(features*features.T)
-
-    adj = sp.coo_matrix(adp_adj)
-    rowsum = np.array(adj.sum(1))
-    d_inv_sqrt = np.power(rowsum, -0.5).flatten()
-    d_inv_sqrt[np.isinf(d_inv_sqrt)] = 0.
-    d_mat_inv_sqrt = sp.diags(d_inv_sqrt)
-
-    adj_normalized = adj_sl.dot(d_mat_inv_sqrt).transpose().dot(d_mat_inv_sqrt).tocoo()
-    return sparse_to_tuple(adj_normalized)
+def adapt_preprocess_adj(adj, features):
+    adj_sl = adj + sp.eye(adj.shape[0])
+    adj_sl = tf.cast(adj_sl.A, tf.float32)
+    # adp_adj = tf.multiply(adj_sl, (tf.matmul(features, tf.transpose(features))))
+    dia_adj = tf.reduce_sum(adj_sl, 1)
+    dia_adj_sqrt = tf.pow(dia_adj, -0.5)
+    d_mat_adj_sqrt = tf.matrix_diag(dia_adj_sqrt)
+    adj_normalized = tf.matmul(tf.matmul(d_mat_adj_sqrt, adj_sl), d_mat_adj_sqrt)
+    # adj = sp.coo_matrix(adp_adj)
+    # rowsum = np.array(adj.sum(1))
+    # d_inv_sqrt = np.power(rowsum, -0.5).flatten()
+    # d_inv_sqrt[np.isinf(d_inv_sqrt)] = 0.
+    # d_mat_inv_sqrt = sp.diags(d_inv_sqrt)
+    #
+    # adj_normalized = adj_sl.dot(d_mat_inv_sqrt).transpose().dot(d_mat_inv_sqrt).tocoo()
+    return adj_normalized
 
 
 # The default value is just use for non-adaGCN. When running adaGCN,  utilize default value is illegal.
-def construct_feed_dict(features, support, labels, labels_mask, placeholders, adj, f_in_dim=500,f_out_dim=100):
+def construct_feed_dict(features, support, labels, labels_mask, placeholders):
     """Construct feed dictionary."""
     feed_dict = dict()
     feed_dict.update({placeholders['labels']: labels})
@@ -184,9 +189,7 @@ def construct_feed_dict(features, support, labels, labels_mask, placeholders, ad
     feed_dict.update({placeholders['features']: features})
     feed_dict.update({placeholders['support'][i]: support[i] for i in range(len(support))})
     feed_dict.update({placeholders['num_features_nonzero']: features[1].shape})
-    feed_dict.update({placeholders['f_in_dim']: f_in_dim})
-    feed_dict.update({placeholders['adj']: adj})
-    feed_dict.update({placeholders['f_out_dim']: f_out_dim})
+
 
     return feed_dict
 

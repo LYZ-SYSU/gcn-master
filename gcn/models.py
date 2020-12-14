@@ -178,7 +178,7 @@ class GCN(Model):
 
 
 class AdaGCN(Model):
-    def __init__(self, placeholders, input_dim, **kwargs):
+    def __init__(self, placeholders, input_dim,  adj_mat, features, **kwargs):
         super(AdaGCN, self).__init__(**kwargs)
 
         self.inputs = placeholders['features']
@@ -186,7 +186,8 @@ class AdaGCN(Model):
         # self.input_dim = self.inputs.get_shape().as_list()[1]  # To be supported in future Tensorflow versions
         self.output_dim = placeholders['labels'].get_shape().as_list()[1]
         self.placeholders = placeholders
-
+        self.adj_mat = adj_mat
+        self.features = features
         self.optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate)
 
         self.build()
@@ -208,6 +209,8 @@ class AdaGCN(Model):
 
         self.layers.append(AdaptiveGraphConvolution(input_dim=self.input_dim,
                                             output_dim=FLAGS.hidden1,
+                                            adj_mat=self.adj_mat,
+                                            features=self.features,
                                             placeholders=self.placeholders,
                                             act=tf.nn.relu,
                                             dropout=True,
@@ -216,6 +219,8 @@ class AdaGCN(Model):
 
         self.layers.append(AdaptiveGraphConvolution(input_dim=FLAGS.hidden1,
                                             output_dim=self.output_dim,
+                                            adj_mat=self.adj_mat,
+                                            features=self.features,
                                             placeholders=self.placeholders,
                                             act=lambda x: x,
                                             dropout=True,
