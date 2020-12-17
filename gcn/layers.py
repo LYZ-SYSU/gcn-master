@@ -206,6 +206,7 @@ class AdaptiveGraphConvolution(Layer):
         self.support = placeholders['support']
         # self.features = tuple_to_sparse(placeholders['features'])
         self.adj = (adj_mat+sp.eye(adj_mat.shape[0])).tocoo()
+        self.num_vertex = self.adj.shape[0]
         self.row = list(self.adj.row)
         self.col = list(self.adj.col)
         self.adj = tf.cast(self.adj.A, 1)
@@ -234,8 +235,9 @@ class AdaptiveGraphConvolution(Layer):
 
             self.vars['weights_' ] = glorot([input_dim, output_dim],
                                                         name='weights_')
+
             self.vars['f_weights'] = glorot([output_dim*2, 1], name='f_weights')
-            self.vars['f_bias'] = zeros([self.f_out_dim], name='f_bias')
+            self.vars['f_bias'] = constants([1],0.5, name='f_bias')
 
             if self.bias:
                 self.vars['bias'] = zeros([output_dim], name='bias')
@@ -260,13 +262,13 @@ class AdaptiveGraphConvolution(Layer):
         features_vi = tf.gather(pre_sup, self.row)
         features_vj = tf.gather(pre_sup, self.col)
         vivj = tf.concat([features_vi, features_vj],1)
-        vivj= dot(vivj, self.vars['f_weights'])
-        vivj = tf.nn.sigmoid(vivj)
+        vivj= dot(vivj, self.vars['f_weights'])+self.vars['f_bias']
+        # vivj = tf.nn.sigmoid(vivj)
 
         deg_vi = tf.gather(self.dia_adj, self.row)
         deg_vj = tf.gather(self.dia_adj, self.col)
         deg_vivj = tf.expand_dims(tf.math.multiply(deg_vi, deg_vj),-1)
-        deg_vivj_normalized = tf.math.pow(deg_vivj,-1*vivj)
+        deg_vivj_normalized = tf.math.pow(deg_vivj,-vivj)
 
 
         # def adapt_preprocess_adj(adj, features):
@@ -290,10 +292,10 @@ class AdaptiveGraphConvolution(Layer):
         # chebyshev is unable to use.
         # self.support = adapt_preprocess_adj(self.adj)
 
-        support = tf.sparse.SparseTensor(indices=np.stack([self.row,self.col],1),values=deg_vivj_normalized,dense_shape=[])
+        support = tf.sparse.SparseTensor(indices=np.stack([self.row,self.col],1),values=tf.squeeze(deg_vivj_normalized),dense_shape=[self.num_vertex,self.num_vertex])
 
 
-        support = dot(self.support, pre_sup)
+        support = dot(support, pre_sup,sparse=True)
         output = tf.add_n([support])
 
 
