@@ -3,7 +3,7 @@ import tensorflow as tf
 from utils import *
 flags = tf.app.flags
 FLAGS = flags.FLAGS
-
+import scipy.sparse as sp
 # global unique layer ID dictionary for layer name assignment
 _LAYER_UIDS = {}
 
@@ -192,7 +192,7 @@ class GraphConvolution(Layer):
 
 class AdaptiveGraphConvolution(Layer):
     """Adaptive graph convolution layer."""
-    def __init__(self, input_dim, output_dim, placeholders, adj_mat,features, f_out_dim=200, dropout=0.,
+    def __init__(self, input_dim, output_dim, placeholders, adj_mat, features, f_out_dim=200, dropout=0.,
                  sparse_inputs=False, act=tf.nn.relu, bias=False,
                  featureless=False, **kwargs):
         super(AdaptiveGraphConvolution, self).__init__(**kwargs)
@@ -205,8 +205,12 @@ class AdaptiveGraphConvolution(Layer):
         self.act = act
         self.support = placeholders['support']
         # self.features = tuple_to_sparse(placeholders['features'])
-        self.adj = adj_mat
-        self.features = features
+        self.adj = (adj_mat+sp.eye(adj_mat.shape[0])).tocoo()
+        self.row = list(self.adj.row)
+        self.col = list(self.adj.col)
+        self.adj = tf.cast(self.adj.A, 1)
+        self.dia_adj = tf.reduce_sum(self.adj, 1)
+
         self.f_in_dim = features.shape[1]
         self.f_out_dim = f_out_dim
         self.sparse_inputs = sparse_inputs
@@ -230,7 +234,7 @@ class AdaptiveGraphConvolution(Layer):
 
             self.vars['weights_' ] = glorot([input_dim, output_dim],
                                                         name='weights_')
-            self.vars['f_weights'] = glorot([self.f_in_dim, self.f_out_dim], name='f_weights')
+            self.vars['f_weights'] = glorot([output_dim*2, 1], name='f_weights')
             self.vars['f_bias'] = zeros([self.f_out_dim], name='f_bias')
 
             if self.bias:
@@ -246,6 +250,24 @@ class AdaptiveGraphConvolution(Layer):
             x = sparse_dropout(x, 1-self.dropout, self.num_features_nonzero)
         else:
             x = tf.nn.dropout(x, 1-self.dropout)
+
+        if not self.featureless:
+            pre_sup = dot(x, self.vars['weights_'],
+                          sparse=self.sparse_inputs)
+        else:
+            pre_sup = self.vars['weights_']
+
+        features_vi = tf.gather(pre_sup, self.row)
+        features_vj = tf.gather(pre_sup, self.col)
+        vivj = tf.concat([features_vi, features_vj],1)
+        vivj= dot(vivj, self.vars['f_weights'])
+        vivj = tf.nn.sigmoid(vivj)
+
+        deg_vi = tf.gather(self.dia_adj, self.row)
+        deg_vj = tf.gather(self.dia_adj, self.col)
+        deg_vivj = tf.expand_dims(tf.math.multiply(deg_vi, deg_vj),-1)
+        deg_vivj_normalized = tf.math.pow(deg_vivj,-1*vivj)
+
 
         # def adapt_preprocess_adj(adj, features):
         #     adj_sl = adj + sp.eye(adj.shape[0])
@@ -264,15 +286,13 @@ class AdaptiveGraphConvolution(Layer):
         # features = self.features*self.vars['f_weights']+self.vars['f_bias']
         # features = dot(self.features.A,self.vars['f_weights'])+self.vars['f_bias']
         # adj_sl = self.adj + sp.eye(self.adj.shape[0])
-        features = tf.convert_to_tensor(self.features.A)
-        #chebyshev is unable to use.
-        self.support=adapt_preprocess_adj(self.adj,features)
 
-        if not self.featureless:
-            pre_sup = dot(x, self.vars['weights_'],
-                          sparse=self.sparse_inputs)
-        else:
-            pre_sup = self.vars['weights_']
+        # chebyshev is unable to use.
+        # self.support = adapt_preprocess_adj(self.adj)
+
+        support = tf.sparse.SparseTensor(indices=np.stack([self.row,self.col],1),values=deg_vivj_normalized,dense_shape=[])
+
+
         support = dot(self.support, pre_sup)
         output = tf.add_n([support])
 

@@ -6,7 +6,8 @@ import tensorflow as tf
 
 from gcn.utils import *
 from gcn.models import GCN, MLP, AdaGCN
-
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 # Set random seed
 seed = 123
 np.random.seed(seed)
@@ -15,7 +16,7 @@ tf.set_random_seed(seed)
 # Settings
 flags = tf.app.flags
 FLAGS = flags.FLAGS
-flags.DEFINE_string('dataset', 'pubmed', 'Dataset string.')  # 'cora', 'citeseer', 'pubmed'
+flags.DEFINE_string('dataset', 'cora', 'Dataset string.')  # 'cora', 'citeseer', 'pubmed'
 flags.DEFINE_string('model', 'gcn_adp', 'Model string.')  # 'gcn', 'gcn_cheby', 'dense'
 flags.DEFINE_float('learning_rate', 0.01, 'Initial learning rate.')
 flags.DEFINE_integer('f_out_dim', 100, 'Output dimensionality of feature.')
@@ -51,6 +52,8 @@ elif FLAGS.model == 'gcn_adp':
     model_func = AdaGCN
 else:
     raise ValueError('Invalid argument for model: ' + str(FLAGS.model))
+
+
 features_mat = features
 features = sparse_to_tuple(features)
 f_in_dim = features_mat.shape[1]

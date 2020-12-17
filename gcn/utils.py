@@ -162,7 +162,7 @@ def preprocess_adj(adj):
 #     adj_normalized = normalize_adj(adp_adj)
 #     return sparse_to_tuple(adj_normalized)
 
-def adapt_preprocess_adj(adj, features):
+def adapt_preprocess_adj(adj):
     adj_sl = adj + sp.eye(adj.shape[0])
     adj_sl = tf.cast(adj_sl.A, tf.float32)
     # adp_adj = tf.multiply(adj_sl, (tf.matmul(features, tf.transpose(features))))
