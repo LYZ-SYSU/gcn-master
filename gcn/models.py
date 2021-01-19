@@ -35,6 +35,9 @@ class Model(object):
     def _build(self):
         raise NotImplementedError
 
+    def _optimize(self):
+        raise NotImplementedError
+
     def build(self):
         """ Wrapper for _build() """
         with tf.variable_scope(self.name):
@@ -85,7 +88,6 @@ class Model(object):
 class MLP(Model):
     def __init__(self, placeholders, input_dim, **kwargs):
         super(MLP, self).__init__(**kwargs)
-
         self.inputs = placeholders['features']
         self.input_dim = input_dim
         # self.input_dim = self.inputs.get_shape().as_list()[1]  # To be supported in future Tensorflow versions
@@ -95,6 +97,9 @@ class MLP(Model):
         self.optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate)
 
         self.build()
+
+    def _optimize(self):
+        self.opt_op = self.optimizer.minimize(self.loss)
 
     def _loss(self):
         # Weight decay loss
@@ -156,6 +161,9 @@ class GCN(Model):
         self.accuracy = masked_accuracy(self.outputs, self.placeholders['labels'],
                                         self.placeholders['labels_mask'])
 
+    def _optimize(self):
+        self.opt_op = self.optimizer.minimize(self.loss)
+
     def _build(self):
 
         self.layers.append(GraphConvolution(input_dim=self.input_dim,
@@ -178,7 +186,7 @@ class GCN(Model):
 
 
 class AdaGCN(Model):
-    def __init__(self, placeholders, input_dim,  adj_mat, features, **kwargs):
+    def __init__(self, placeholders, input_dim,  adj_mat, dia_adj, features, **kwargs):
         super(AdaGCN, self).__init__(**kwargs)
 
         self.inputs = placeholders['features']
@@ -189,7 +197,7 @@ class AdaGCN(Model):
         self.adj_mat = adj_mat
         self.features = features
         self.optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate)
-
+        self.dia_adj = dia_adj
         self.build()
 
     def _loss(self):
@@ -201,6 +209,13 @@ class AdaGCN(Model):
         self.loss += masked_softmax_cross_entropy(self.outputs, self.placeholders['labels'],
                                                   self.placeholders['labels_mask'])
 
+        # Constraint alpha
+        for i in range(len(self.layers)):
+            self.loss += self.layers[i].constrain_alpha[0]*50
+
+    def _optimize(self):
+        self.opt_op = self.optimizer.minimize(self.loss,var_list=tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,scope=self.name+'/original'))
+
     def _accuracy(self):
         self.accuracy = masked_accuracy(self.outputs, self.placeholders['labels'],
                                         self.placeholders['labels_mask'])
@@ -211,20 +226,25 @@ class AdaGCN(Model):
                                             output_dim=FLAGS.hidden1,
                                             adj_mat=self.adj_mat,
                                             features=self.features,
+                                            dia_adj=self.dia_adj,
                                             placeholders=self.placeholders,
                                             act=tf.nn.relu,
                                             dropout=True,
                                             sparse_inputs=True,
+                                            power_bias=True,
                                             logging=self.logging))
 
         self.layers.append(AdaptiveGraphConvolution(input_dim=FLAGS.hidden1,
                                             output_dim=self.output_dim,
                                             adj_mat=self.adj_mat,
+                                            dia_adj=self.dia_adj,
                                             features=self.features,
                                             placeholders=self.placeholders,
                                             act=lambda x: x,
                                             dropout=True,
+                                            power_bias=True,
                                             logging=self.logging))
 
     def predict(self):
         return tf.nn.softmax(self.outputs)
+

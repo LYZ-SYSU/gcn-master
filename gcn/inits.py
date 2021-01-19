@@ -22,7 +22,7 @@ def zeros(shape, name=None):
 
 
 def constants(shape, cnt=0, name=None):
-    initial = tf.zeros(shape, dtype=tf.float32)+cnt
+    initial = tf.zeros(shape, dtype=tf.float32) + cnt
     return tf.Variable(initial, name=name)
 
 

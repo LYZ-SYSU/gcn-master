@@ -190,7 +190,6 @@ def construct_feed_dict(features, support, labels, labels_mask, placeholders):
     feed_dict.update({placeholders['support'][i]: support[i] for i in range(len(support))})
     feed_dict.update({placeholders['num_features_nonzero']: features[1].shape})
 
-
     return feed_dict
 
 

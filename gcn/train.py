@@ -7,7 +7,7 @@ import tensorflow as tf
 from gcn.utils import *
 from gcn.models import GCN, MLP, AdaGCN
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 # Set random seed
 seed = 123
 np.random.seed(seed)
@@ -16,16 +16,18 @@ tf.set_random_seed(seed)
 # Settings
 flags = tf.app.flags
 FLAGS = flags.FLAGS
-flags.DEFINE_string('dataset', 'cora', 'Dataset string.')  # 'cora', 'citeseer', 'pubmed'
+flags.DEFINE_string('dataset', 'pubmed', 'Dataset string.')  # 'cora', 'citeseer', 'pubmed'
 flags.DEFINE_string('model', 'gcn_adp', 'Model string.')  # 'gcn', 'gcn_cheby', 'dense'
 flags.DEFINE_float('learning_rate', 0.01, 'Initial learning rate.')
 flags.DEFINE_integer('f_out_dim', 100, 'Output dimensionality of feature.')
 
 flags.DEFINE_integer('epochs', 200, 'Number of epochs to train.')
+
 flags.DEFINE_integer('hidden1', 16, 'Number of units in hidden layer 1.')
+
 flags.DEFINE_float('dropout', 0.5, 'Dropout rate (1 - keep probability).')
 flags.DEFINE_float('weight_decay', 5e-4, 'Weight for L2 loss on embedding matrix.')
-flags.DEFINE_integer('early_stopping', 10, 'Tolerance for early stopping (# of epochs).')
+flags.DEFINE_integer('early_stopping', 50, 'Tolerance for early stopping (# of epochs).')
 flags.DEFINE_integer('max_degree', 3, 'Maximum Chebyshev polynomial degree.')
 
 # Load data
@@ -70,11 +72,14 @@ placeholders = {
     'dropout': tf.placeholder_with_default(0., shape=()),
     'num_features_nonzero': tf.placeholder(tf.int32)  # helper variable for sparse dropout
 }
-
+adj_mat = adj_mat+sp.eye(adj_mat.shape[0])
+dia_adj = np.sum(adj_mat.A,1)
+dia_adj = tf.convert_to_tensor(dia_adj)
+# dia_adj = tf.reduce_sum(tf.cast(adj_mat.A, 1), 1)
 
 # Create model
 if model_func == AdaGCN:
-    model = model_func(placeholders, adj_mat=adj_mat, features=features_mat, input_dim=features[2][1], logging=True)
+    model = model_func(placeholders, adj_mat=adj_mat, dia_adj=dia_adj, features=features_mat, input_dim=features[2][1], logging=True)
 else:
     model = model_func(placeholders, input_dim=features[2][1], logging=True)
 
@@ -114,7 +119,7 @@ for epoch in range(FLAGS.epochs):
     feed_dict.update({placeholders['f_out_dim']: FLAGS.f_out_dim})
     # Training step
     outs = sess.run([model.opt_op, model.loss, model.accuracy], feed_dict=feed_dict)
-
+    # sess.run()
     # Validation
     if FLAGS.model == 'gcn_adp':
         cost, acc, duration = evaluate_adp(features, support,  y_val, val_mask, placeholders)
@@ -141,3 +146,4 @@ else:
 
 print("Test set results:", "cost=", "{:.5f}".format(test_cost),
       "accuracy=", "{:.5f}".format(test_acc), "time=", "{:.5f}".format(test_duration))
+
